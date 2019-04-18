@@ -11,7 +11,7 @@ before_script: greenkeeper-lockfile-update
 after_script: greenkeeper-lockfile-upload
 install:
 - sudo apt update
-- sudo apt -y install libpulse-dev pulseaudio libcanberra-dev
+- sudo apt -y install libpulse-dev pulseaudio libcanberra-dev libcanberra-pulse
 - yarn
 script:
 - pulseaudio --start
