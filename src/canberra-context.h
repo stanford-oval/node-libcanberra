@@ -30,17 +30,24 @@
 
 #include <nan.h>
 #include <canberra.h>
+#include <algorithm>
+#include <deque>
+#include <mutex>
 
 namespace node_libcanberra {
 
-class Context : public Nan::ObjectWrap {
+class Context : public Nan::ObjectWrap, private uv_async_t {
  public:
   static void Init(v8::Local<v8::Object> exports);
 
  private:
   ca_context *m_ctx;
+  Nan::Persistent<v8::Function> m_callback;
 
-  explicit Context(ca_proplist *props);
+  std::mutex m_result_list_lock;
+  std::deque<std::pair<uint32_t, int>> m_result_list;
+
+  explicit Context(ca_proplist *props, v8::Local<v8::Function> callback);
   ~Context();
 
   bool Open(v8::Isolate *isolate);
@@ -49,7 +56,13 @@ class Context : public Nan::ObjectWrap {
   static void Destroy(const Nan::FunctionCallbackInfo<v8::Value>& info);
   static void Play(const Nan::FunctionCallbackInfo<v8::Value>& info);
   static void Cancel(const Nan::FunctionCallbackInfo<v8::Value>& info);
+  static void Cache(const Nan::FunctionCallbackInfo<v8::Value>& info);
+  static void Playing(const Nan::FunctionCallbackInfo<v8::Value>& info);
   static Nan::Persistent<v8::Function> constructor;
+
+  static void AsyncCallback(uv_async_t* self);
+  static void play_finish_callback(ca_context *c, uint32_t id, int error_code, void *userdata);
+  static void async_close_callback(uv_handle_t* handle);
 };
 
 }

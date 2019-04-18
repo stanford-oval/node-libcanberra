@@ -26,6 +26,8 @@
 //
 // Author: Giovanni Campagna <gcampagn@cs.stanford.edu>
 
+#include <stdio.h>
+
 #include "canberra-context.h"
 
 #define JS_ASSERT(condition, cleanup, ret, message) \
@@ -49,10 +51,12 @@ namespace node_libcanberra {
 
 Nan::Persistent<v8::Function> Context::constructor;
 
-Context::Context(ca_proplist *props)
+Context::Context(ca_proplist *props, v8::Local<v8::Function> callback) : m_callback(callback)
 {
     ca_context_create(&m_ctx);
     ca_context_change_props_full(m_ctx, props);
+
+    uv_async_init(uv_default_loop(), this, AsyncCallback);
 }
 
 bool
@@ -68,10 +72,10 @@ Context::Open(v8::Isolate *isolate)
 
 Context::~Context()
 {
-    if (!m_ctx)
-        return;
-    ca_context_destroy(m_ctx);
-    m_ctx = nullptr;
+    if (m_ctx) {
+        ca_context_destroy(m_ctx);
+        m_ctx = nullptr;
+    }
 }
 
 void Context::Init(v8::Local<v8::Object> exports)
@@ -84,9 +88,11 @@ void Context::Init(v8::Local<v8::Object> exports)
     tpl->InstanceTemplate()->SetInternalFieldCount(1);
 
     // Prototype
-    //Nan::SetPrototypeMethod(tpl, "play", Play);
-    //Nan::SetPrototypeMethod(tpl, "cancel", Cancel);
+    Nan::SetPrototypeMethod(tpl, "play", Play);
+    Nan::SetPrototypeMethod(tpl, "cancel", Cancel);
     Nan::SetPrototypeMethod(tpl, "destroy", Destroy);
+    Nan::SetPrototypeMethod(tpl, "cache", Cache);
+    Nan::SetPrototypeMethod(tpl, "playing", Playing);
 
     constructor.Reset(tpl->GetFunction());
     exports->Set(Nan::New("Context").ToLocalChecked(), tpl->GetFunction());
@@ -141,20 +147,28 @@ void Context::New(const Nan::FunctionCallbackInfo<v8::Value>& info)
     auto isolate = info.GetIsolate();
 
     JS_ASSERT(info.IsConstructCall(), , , "Context() must called as constructor");
-    JS_ASSERT(info.Length() == 0 || info[0]->IsObject(), , , "new Context() must be called with a single object argument");
+    JS_ASSERT(info.Length() == 2, , , "Expected 2 arguments");
+    JS_ASSERT(info[0]->IsObject(), , , "new Context() expects an object as first argument");
+    JS_ASSERT(info[1]->IsFunction(), , , "new Context() expects a function as second argument");
 
-    auto proplist = maybe_build_proplist(isolate, info.Length() > 0 ? info[0]->ToObject(isolate) : v8::Local<v8::Object>());
+    auto proplist = maybe_build_proplist(isolate, info[0]->ToObject(isolate));
     if (!proplist)
         return;
 
-    Context* ctx = new Context(proplist);
+    Context* ctx = new Context(proplist, info[1].As<v8::Function>());
     ca_proplist_destroy(proplist);
 
     if (!ctx->Open(isolate))
         return;
 
     ctx->Wrap(info.This());
+    ctx->Ref();
     info.GetReturnValue().Set(info.This());
+}
+
+void Context::async_close_callback(uv_handle_t* handle)
+{
+    static_cast<Context*>((uv_async_t*)handle)->Unref();
 }
 
 void Context::Destroy(const Nan::FunctionCallbackInfo<v8::Value>& info)
@@ -167,6 +181,158 @@ void Context::Destroy(const Nan::FunctionCallbackInfo<v8::Value>& info)
         return;
     ca_context_destroy(self->m_ctx);
     self->m_ctx = nullptr;
+
+    uv_close((uv_handle_t*)static_cast<uv_async_t*>(self), async_close_callback);
+
+    info.GetReturnValue().Set(Nan::Undefined());
+}
+
+void
+Context::play_finish_callback(ca_context *c, uint32_t id, int error_code, void *userdata)
+{
+    Context *self = static_cast<Context*>(userdata);
+
+    std::lock_guard<std::mutex> locker(self->m_result_list_lock);
+    self->m_result_list.emplace_back(id, error_code);
+    uv_async_send(self);
+}
+
+void Context::Play(const Nan::FunctionCallbackInfo<v8::Value>& info)
+{
+    auto isolate = info.GetIsolate();
+    Context *self = Nan::ObjectWrap::Unwrap<Context>(info.This());
+    if (!self)
+        return;
+
+    JS_ASSERT(info.Length() >= 2, , , "Expected at least 2 arguments to Context.play()");
+    JS_ASSERT(info[0]->IsNumber(), , , "The first argument to Context.play() must be a number");
+    JS_ASSERT(info[1]->IsObject(), , , "The second argument to Context.play() must be an object with properties");
+
+    auto proplist = maybe_build_proplist(isolate, info[1]->ToObject(isolate));
+    if (!proplist)
+        return;
+
+    uint32_t id = info[0].As<v8::Number>()->Value();
+    if (!self->m_ctx) {
+        std::lock_guard<std::mutex> locker(self->m_result_list_lock);
+        self->m_result_list.emplace_back(id, CA_ERROR_DESTROYED);
+        uv_async_send(self);
+
+        ca_proplist_destroy(proplist);
+        return;
+    }
+
+    int err = ca_context_play_full(self->m_ctx, id, proplist, play_finish_callback, self);
+    if (err < 0) {
+        std::lock_guard<std::mutex> locker(self->m_result_list_lock);
+        self->m_result_list.emplace_back(id, err);
+        uv_async_send(self);
+
+        ca_proplist_destroy(proplist);
+    }
+
+    info.GetReturnValue().Set(Nan::Undefined());
+}
+
+void Context::Cancel(const Nan::FunctionCallbackInfo<v8::Value>& info)
+{
+    auto isolate = info.GetIsolate();
+    Context *self = Nan::ObjectWrap::Unwrap<Context>(info.This());
+    if (!self)
+        return;
+
+    JS_ASSERT(info.Length() >= 1, , , "Expected an argument to Context.cancel()");
+    JS_ASSERT(info[0]->IsNumber(), , , "The first argument to Context.cancel() must be a number");
+
+    uint32_t id = info[0].As<v8::Number>()->Value();
+
+    if (!self->m_ctx)
+        return;
+
+    ca_context_cancel(self->m_ctx, id);
+
+    info.GetReturnValue().Set(Nan::Undefined());
+}
+
+void Context::Playing(const Nan::FunctionCallbackInfo<v8::Value>& info)
+{
+    auto isolate = info.GetIsolate();
+    Context *self = Nan::ObjectWrap::Unwrap<Context>(info.This());
+    if (!self)
+        return;
+
+    JS_ASSERT(info.Length() >= 1, , , "Expected an argument to Context.playing()");
+    JS_ASSERT(info[0]->IsNumber(), , , "The first argument to Context.playing() must be a number");
+
+    uint32_t id = info[0].As<v8::Number>()->Value();
+
+    if (!self->m_ctx)
+        return;
+
+    int playing;
+    int err = ca_context_playing(self->m_ctx, id, &playing);
+    CANBERRA_CHECK(err, , );
+
+    info.GetReturnValue().Set(playing ? Nan::True() : Nan::False());
+}
+
+void Context::Cache(const Nan::FunctionCallbackInfo<v8::Value>& info)
+{
+    auto isolate = info.GetIsolate();
+    Context *self = Nan::ObjectWrap::Unwrap<Context>(info.This());
+    if (!self)
+        return;
+
+    JS_ASSERT(info.Length() >= 1, , , "Expected an argument to Context.cache()");
+    JS_ASSERT(info[0]->IsObject(), , , "The first argument to Context.cache() must be a number");
+
+    auto proplist = maybe_build_proplist(isolate, info[0]->ToObject(isolate));
+    if (!proplist)
+        return;
+
+    if (!self->m_ctx) {
+        ca_proplist_destroy(proplist);
+        return;
+    }
+
+    int err = ca_context_cache_full(self->m_ctx, proplist);
+    CANBERRA_CHECK(err, , );
+
+    info.GetReturnValue().Set(Nan::Undefined());
+}
+
+void Context::AsyncCallback(uv_async_t* async)
+{
+    Context *self = static_cast<Context*>(async);
+    std::deque<std::pair<uint32_t, int>> result_list;
+
+    {
+        std::lock_guard<std::mutex> locker(self->m_result_list_lock);
+        std::swap(result_list, self->m_result_list);
+    }
+
+    Nan::HandleScope scope;
+    auto v8ctx = Nan::GetCurrentContext();
+    auto isolate = v8ctx->GetIsolate();
+    v8::Local<v8::Function> callback = self->m_callback.Get(isolate);
+
+    for (const auto& result : result_list) {
+        const unsigned argc = 2;
+
+        v8::Local<v8::Value> error;
+        if (result.second == CA_SUCCESS) {
+            error = Nan::Null();
+        } else {
+            error = Nan::Error(Nan::NewOneByteString((const uint8_t*)(ca_strerror(result.second))).ToLocalChecked());
+            error.As<v8::Object>()->Set(Nan::NewOneByteString((const uint8_t*)"code").ToLocalChecked(), v8::Number::New(isolate, result.second));
+        }
+
+        v8::Local<v8::Value> argv[argc] = {
+            v8::Number::New(isolate, result.first),
+            error
+        };
+        Nan::MakeCallback(Nan::GetCurrentContext()->Global(), callback, argc, argv);
+    }
 }
 
 }
