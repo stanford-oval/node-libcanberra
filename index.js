@@ -25,6 +25,8 @@
 // SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //
 // Author: Giovanni Campagna <gcampagn@cs.stanford.edu>
+//
+"use strict";
 
 const NativeContext = require('bindings')('canberra').Context;
 
@@ -133,7 +135,7 @@ class Context {
         this._native.play(id, props);
         return promise;
     }
-};
+}
 
 module.exports = Context;
 module.exports.Context = Context;
