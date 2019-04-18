@@ -29,6 +29,7 @@
 #pragma once
 
 #include <nan.h>
+#include <canberra.h>
 
 namespace node_libcanberra {
 
@@ -37,10 +38,17 @@ class Context : public Nan::ObjectWrap {
   static void Init(v8::Local<v8::Object> exports);
 
  private:
-  explicit Context();
+  ca_context *m_ctx;
+
+  explicit Context(ca_proplist *props);
   ~Context();
 
+  bool Open(v8::Isolate *isolate);
+
   static void New(const Nan::FunctionCallbackInfo<v8::Value>& info);
+  static void Destroy(const Nan::FunctionCallbackInfo<v8::Value>& info);
+  static void Play(const Nan::FunctionCallbackInfo<v8::Value>& info);
+  static void Cancel(const Nan::FunctionCallbackInfo<v8::Value>& info);
   static Nan::Persistent<v8::Function> constructor;
 };
 

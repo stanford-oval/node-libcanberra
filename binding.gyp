@@ -6,10 +6,18 @@
       "cflags": [
           '-Wall',
           '-Wno-deprecated-declarations',
-          '-Wno-cast-function-type'
+          '-Wno-cast-function-type',
+          '<!@(pkg-config --cflags-only-other libcanberra)',
+      ],
+      'ldflags': [
+          '<!@(pkg-config  --libs-only-L --libs-only-other libcanberra)'
+      ],
+      'libraries': [
+          '<!@(pkg-config  --libs-only-l --libs-only-other libcanberra)'
       ],
       "include_dirs": [
-        "<!(node -e \"require('nan')\")"
+          "<!(node -e \"require('nan')\")",
+          '<!@(pkg-config --cflags-only-I libcanberra)',
       ]
     }
   ]
