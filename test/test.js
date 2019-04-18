@@ -1,3 +1,7 @@
+"use strict";
+
+process.on('unhandledRejection', (up) => { throw up; });
+
 const assert = require('assert');
 
 const canberra = require('..');
@@ -5,9 +9,14 @@ const canberra = require('..');
 async function main() {
     const ctx = new canberra.Context();
 
-    ctx.cache({
-        [canberra.Property.EVENT_ID]: 'message-new-incoming'
-    });
+    try {
+        ctx.cache({
+            [canberra.Property.EVENT_ID]: 'message-new-incoming'
+        });
+    } catch(e) {
+        if (e.code !== canberra.Error.NOTSUPPORTED)
+            throw e;
+    }
 
     try {
         setTimeout(() => {
