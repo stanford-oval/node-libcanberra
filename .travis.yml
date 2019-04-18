@@ -18,3 +18,11 @@ script:
 - yarn lint
 - TZ="America/Los_Angeles" yarn test
 after_success: yarn run coverage
+deploy:
+  provider: npm
+  email: gcampagn@cs.stanford.edu
+  api_key:
+    secure: WkhlhDKYsPN57bmwCkfjJ9zqICruHWw8ptK3l4e4H+MtFJZNPpKSn14LpAFJoPCywDpKlcqOnQF5NXgoChcVTYy9rpTf5BbHsdB6JaBRhcVwtt2BI+spvFcdrF3gNxjwxioCU7jQX+9vnWOisoFY7kYOyXglGxavO8yPUO7AgtlWhpr+7WLz9m7YSfD5P8BqmCZ+e6IA7YNmRS9doIL14h9Qe78NM/vZNGpDHsx0UyDP6Z0oIv/3Kb6lUmR0OpO5L/FIdFm61UNHhxEJY3Hrr+206DIbqEWIPj79i7F6BuxKZLdq9Q+9xvTgAbhfrOLiVpyLcS6OERxwPiKCPJs09HBBk8eCoL/isHyRNPQfvSbZQvOFAr/JyXtmGM7Ac1qgjKeNC5THoQ5rK+9axGqgm9bVYshpHBv1nUVz00p224ZN2C5jlyo78LLQzxzNa56fgjlAJh0xvOZrC0LwPmLgjT004bcKVJzhP/qPccZ2jZoujTvF5ti2TXfrtSRCMENXwuCGKc/RrI7xqrjfCqRTLOuynl5ua/fTsTF/y0siFswfD2u/LqQ/60rhXyGO66XFKd+9jucdB+9lh27EmM1GjtBt8p1yAt7laqGYoYNxKEkvg32CK81Xjk2tiST+ACwl1OaS6wnNcsDfq/DOqLrS4e7+RU0Lsjn8temLWVbQ01w=
+  on:
+    tags: true
+    repo: stanford-oval/node-libcanberra
