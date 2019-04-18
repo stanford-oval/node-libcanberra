@@ -1,0 +1,14 @@
+{
+  "name": "canberra",
+  "version": "0.1.0",
+  "description": "Node.js bindings to libcanberra (a library to play event sounds)",
+  "main": "index.js",
+  "repository": "https://github.com/stanford-oval/node-libcanberra",
+  "author": "Giovanni Campagna <gcampagn@cs.stanford.edu>",
+  "license": "BSD-3-Clause",
+  "gypfile": true,
+  "dependencies": {
+    "bindings": "~1.2.1",
+    "nan": "^2.13.2"
+  }
+}
