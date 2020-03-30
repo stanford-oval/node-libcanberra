@@ -100,10 +100,13 @@ class Context {
     constructor(props = {}) {
         this._callbacks = new Map;
         this._native = new NativeContext(props, (id, err) => {
-            if (err)
-                this._callbacks.get(id).reject(err);
-            else
-                this._callbacks.get(id).resolve();
+            const callbacks = this._callbacks.get(id);
+            if (callbacks) {
+                if (err)
+                    callbacks.reject(err);
+                else
+                    callbacks.resolve();
+            }
             this._callbacks.delete(id);
         });
     }
