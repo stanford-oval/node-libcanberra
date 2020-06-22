@@ -84,7 +84,8 @@ void Context::Init(v8::Local<v8::Object> exports)
 
     // Prepare constructor template
     v8::Local<v8::FunctionTemplate> tpl = Nan::New<v8::FunctionTemplate>(New);
-    tpl->SetClassName(Nan::New("Context").ToLocalChecked());
+    auto classname = Nan::New("Context").ToLocalChecked();
+    tpl->SetClassName(classname);
     tpl->InstanceTemplate()->SetInternalFieldCount(1);
 
     // Prototype
@@ -94,18 +95,9 @@ void Context::Init(v8::Local<v8::Object> exports)
     Nan::SetPrototypeMethod(tpl, "cache", Cache);
     Nan::SetPrototypeMethod(tpl, "playing", Playing);
 
-    constructor.Reset(tpl->GetFunction());
-    exports->Set(Nan::New("Context").ToLocalChecked(), tpl->GetFunction());
-}
-
-static char*
-v8_to_string(v8::Local<v8::String> s)
-{
-    size_t length = s->Utf8Length();
-    char *buffer = (char*)malloc(length);
-    s->WriteUtf8(buffer, -1, nullptr, v8::String::REPLACE_INVALID_UTF8);
-
-    return buffer;
+    auto fn = Nan::GetFunction(tpl).ToLocalChecked();
+    constructor.Reset(fn);
+    Nan::Set(exports, classname, fn);
 }
 
 static ca_proplist*
@@ -120,23 +112,33 @@ maybe_build_proplist(v8::Isolate *isolate, v8::Local<v8::Object> fromjs)
     if (fromjs.IsEmpty())
         return props;
 
-    auto prop_names = fromjs->GetOwnPropertyNames();
+    auto maybe_prop_names = Nan::GetOwnPropertyNames(fromjs);
+    if (maybe_prop_names.IsEmpty()) {
+        ca_proplist_destroy(props);
+        return nullptr;
+    }
+
+    auto prop_names = maybe_prop_names.ToLocalChecked();
     for (uint32_t i = 0; i < prop_names->Length(); i++) {
-        auto name = prop_names->Get(i);
+        v8::Local<v8::Value> name, value;
+        if (!Nan::Get(prop_names, i).ToLocal(&name)) {
+            ca_proplist_destroy(props);
+            return nullptr;
+        }
         JS_ASSERT(name->IsString(), ca_proplist_destroy(props), nullptr, "Property name must be a string");
 
-        auto value = fromjs->Get(name);
+        if (!Nan::Get(fromjs, name).ToLocal(&value)) {
+            ca_proplist_destroy(props);
+            return nullptr;
+        }
 
         JS_ASSERT(!value.IsEmpty() && value->IsString(), ca_proplist_destroy(props), nullptr,
             "Property value must be a string");
 
-        auto c_name = v8_to_string(name->ToString());
-        auto c_value = v8_to_string(value->ToString());
+        Nan::Utf8String c_name(name);
+        Nan::Utf8String c_value(value);
 
-        ca_proplist_sets(props, c_name, c_value);
-
-        free(c_name);
-        free(c_value);
+        ca_proplist_sets(props, *c_name, *c_value);
     }
 
     return props;
@@ -151,7 +153,7 @@ void Context::New(const Nan::FunctionCallbackInfo<v8::Value>& info)
     JS_ASSERT(info[0]->IsObject(), , , "new Context() expects an object as first argument");
     JS_ASSERT(info[1]->IsFunction(), , , "new Context() expects a function as second argument");
 
-    auto proplist = maybe_build_proplist(isolate, info[0]->ToObject(isolate));
+    auto proplist = maybe_build_proplist(isolate, Nan::To<v8::Object>(info[0]).ToLocalChecked());
     if (!proplist)
         return;
 
@@ -208,7 +210,7 @@ void Context::Play(const Nan::FunctionCallbackInfo<v8::Value>& info)
     JS_ASSERT(info[0]->IsNumber(), , , "The first argument to Context.play() must be a number");
     JS_ASSERT(info[1]->IsObject(), , , "The second argument to Context.play() must be an object with properties");
 
-    auto proplist = maybe_build_proplist(isolate, info[1]->ToObject(isolate));
+    auto proplist = maybe_build_proplist(isolate, Nan::To<v8::Object>(info[0]).ToLocalChecked());
     if (!proplist)
         return;
 
@@ -284,9 +286,9 @@ void Context::Cache(const Nan::FunctionCallbackInfo<v8::Value>& info)
         return;
 
     JS_ASSERT(info.Length() >= 1, , , "Expected an argument to Context.cache()");
-    JS_ASSERT(info[0]->IsObject(), , , "The first argument to Context.cache() must be a number");
+    JS_ASSERT(info[0]->IsObject(), , , "The first argument to Context.cache() must be an object");
 
-    auto proplist = maybe_build_proplist(isolate, info[0]->ToObject(isolate));
+    auto proplist = maybe_build_proplist(isolate, Nan::To<v8::Object>(info[0]).ToLocalChecked());
     if (!proplist)
         return;
 
@@ -324,7 +326,7 @@ void Context::AsyncCallback(uv_async_t* async)
             error = Nan::Null();
         } else {
             error = Nan::Error(Nan::NewOneByteString((const uint8_t*)(ca_strerror(result.second))).ToLocalChecked());
-            error.As<v8::Object>()->Set(Nan::NewOneByteString((const uint8_t*)"code").ToLocalChecked(), v8::Number::New(isolate, result.second));
+            Nan::Set(error.As<v8::Object>(), Nan::NewOneByteString((const uint8_t*)"code").ToLocalChecked(), v8::Number::New(isolate, result.second));
         }
 
         v8::Local<v8::Value> argv[argc] = {
