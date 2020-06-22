@@ -210,7 +210,7 @@ void Context::Play(const Nan::FunctionCallbackInfo<v8::Value>& info)
     JS_ASSERT(info[0]->IsNumber(), , , "The first argument to Context.play() must be a number");
     JS_ASSERT(info[1]->IsObject(), , , "The second argument to Context.play() must be an object with properties");
 
-    auto proplist = maybe_build_proplist(isolate, Nan::To<v8::Object>(info[0]).ToLocalChecked());
+    auto proplist = maybe_build_proplist(isolate, Nan::To<v8::Object>(info[1]).ToLocalChecked());
     if (!proplist)
         return;
 
