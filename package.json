@@ -7,6 +7,9 @@
   "author": "Giovanni Campagna <gcampagn@cs.stanford.edu>",
   "license": "BSD-3-Clause",
   "gypfile": true,
+  "os": [
+    "linux"
+  ],
   "dependencies": {
     "bindings": "~1.5.0",
     "nan": "^2.13.2"
